@@ -9,24 +9,25 @@
 
 package org.scalajs.core.tools.linker.backend.closure
 
-import scala.collection.JavaConverters._
+import com.google.javascript.jscomp.CompilerOptions.Reach
 
+import scala.collection.JavaConverters._
 import com.google.javascript.jscomp.{
-  SourceFile => ClosureSource,
   Compiler => ClosureCompiler,
   CompilerOptions => ClosureOptions,
+  SourceFile => ClosureSource,
   _
 }
-
 import org.scalajs.core.tools.io._
 import org.scalajs.core.tools.javascript.ESLevel
 import org.scalajs.core.tools.logging.Logger
 import org.scalajs.core.tools.sem.Semantics
-
 import org.scalajs.core.tools.linker.LinkingUnit
 import org.scalajs.core.tools.linker.analyzer.SymbolRequirement
 import org.scalajs.core.tools.linker.backend._
-import org.scalajs.core.tools.linker.backend.emitter.{Emitter, CoreJSLibs}
+import org.scalajs.core.tools.linker.backend.emitter.{CoreJSLibs, Emitter}
+
+import scala.util.Properties
 
 /** The Closure backend of the Scala.js linker.
  *
@@ -94,13 +95,23 @@ final class ClosureLinkerBackend(
     val options = closureOptions(output.name)
     val compiler = closureCompiler(logger)
 
-    val result = logger.time("Closure: Compiler pass") {
-      compiler.compileModules(
-          closureExterns.asJava, List(module).asJava, options)
-    }
+
 
     logger.time("Closure: Write result") {
-      writeResult(result, compiler, output)
+
+      if (Properties.envOrNone("AST_ONLY").exists(_.toBoolean)) {
+
+        writeAst(compiler, module, output)
+
+      } else {
+
+        val result = logger.time("Closure: Compiler pass") {
+          compiler.compileModules(
+            closureExterns.asJava, List(module).asJava, options)
+        }
+        writeResult(result, compiler, output)
+      }
+
     }
   }
 
@@ -177,8 +188,18 @@ final class ClosureLinkerBackend(
 
   private def closureOptions(outputName: String) = {
     val options = new ClosureOptions
-    options.prettyPrint = config.prettyPrint
-    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options)
+
+//    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options)
+//    options.setPrettyPrint(config.prettyPrint)
+//    options.setCheckTypes(false)
+//    options.setInferTypes(false)
+
+    if (Properties.envOrNone("DCE_ONLY").exists(_.toBoolean)) {
+      setDCEOnlyOptions(options)
+    } else {
+      setAdvancedOptions(options)
+    }
+
     options.setLanguageIn(ClosureOptions.LanguageMode.ECMASCRIPT5)
     options.setCheckGlobalThisLevel(CheckLevel.OFF)
 
@@ -188,6 +209,80 @@ final class ClosureLinkerBackend(
     }
 
     options
+  }
+
+  private def writeAst(compiler: ClosureCompiler, module: JSModule, output: WritableVirtualJSFile) = {
+    val source = compiler.toSource(module)
+    val w = output.contentWriter
+    w.write(source)
+    w.close()
+  }
+
+  private def setAdvancedOptions(options: ClosureOptions): Unit = {
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options)
+    options.setPrettyPrint(config.prettyPrint)
+    options.setCheckTypes(false)  // This defaults to true and triggers an NPE in closure.
+    options.setInferTypes(false)
+  }
+
+  private def setDCEOnlyOptions(options: ClosureOptions): Unit = {
+    // Do not call applySafeCompilationOptions(options) because the call can
+    // create possible conflicts between multiple diagnostic groups.
+    options.setCheckSymbols(false)
+    options.setCheckTypes(false)
+
+    // All the safe optimizations.
+    options.setDependencyOptions(new DependencyOptions().setDependencySorting(true))
+    options.setClosurePass(false)
+    options.setFoldConstants(false)
+    options.setCoalesceVariableNames(false)
+    options.setDeadAssignmentElimination(false)
+    options.setExtractPrototypeMemberDeclarations(false)
+    options.setCollapseVariableDeclarations(false)
+    options.setConvertToDottedProperties(false)
+    options.setLabelRenaming(false)
+    options.setRemoveDeadCode(true)
+    options.setOptimizeArgumentsArray(false)
+    options.setCollapseObjectLiterals(false)
+    options.setProtectHiddenSideEffects(false)
+
+    // All the advanced optimizations.
+    options.setRemoveClosureAsserts(false)
+    options.setRemoveAbstractMethods(false)
+    //options.setRemoveSuperMethods(false)
+    options.setReserveRawExports(false)
+    options.setRenamingPolicy(VariableRenamingPolicy.ALL, PropertyRenamingPolicy.ALL_UNQUOTED)
+    options.setShadowVariables(false)
+    options.setRemoveUnusedPrototypeProperties(false)
+    options.setRemoveUnusedPrototypePropertiesInExterns(false)
+    options.setRemoveUnusedClassProperties(false)
+    options.setCollapseAnonymousFunctions(false)
+    options.setCollapseProperties(false)
+    options.setCheckGlobalThisLevel(CheckLevel.OFF)
+    options.setRewriteFunctionExpressions(false)
+    options.setSmartNameRemoval(false)
+    options.setExtraSmartNameRemoval(false)
+    options.setInlineConstantVars(false)
+    options.setInlineFunctions(Reach.LOCAL_ONLY)
+    options.setAssumeClosuresOnlyCaptureReferences(false)
+    options.setInlineVariables(Reach.LOCAL_ONLY)
+    options.setFlowSensitiveInlineVariables(false)
+    options.setComputeFunctionSideEffects(false)
+    options.setAssumeStrictThis(false)
+
+    // Remove unused vars also removes unused functions.
+    options.setRemoveUnusedVariables(Reach.ALL)
+
+    // Move code around based on the defined modules.
+    options.setCrossModuleCodeMotion(false)
+    options.setCrossModuleMethodMotion(false)
+
+    // Call optimizations
+    options.setDevirtualizePrototypeMethods(false)
+    options.setOptimizeParameters(false)
+    options.setOptimizeReturns(false)
+    options.setOptimizeCalls(false)
+
   }
 }
 

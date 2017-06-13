@@ -33,7 +33,9 @@ final class OptimizerOptions private (
     /** Perform expensive checks of the sanity of the Scala.js IR */
     val checkScalaJSIR: Boolean = false,
     /** Use Google Closure Backend */
-    val useClosureCompiler: Boolean = false
+    val useClosureCompiler: Boolean = false,
+    /** Use DCE only when closure compiler is enabled */
+    val useClosureDCEOnly: Boolean = false
 ) {
 
   @deprecated(
@@ -60,15 +62,20 @@ final class OptimizerOptions private (
   def withUseClosureCompiler(useClosureCompiler: Boolean): OptimizerOptions =
     copy(useClosureCompiler = useClosureCompiler)
 
+  def withUseClosureDCEOnly(useClosureDCE: Boolean): OptimizerOptions =
+    copy(useClosureDCEOnly = useClosureDCE)
+
+
   private def copy(bypassLinkingErrors: Boolean = bypassLinkingErrors,
       parallel: Boolean = parallel, batchMode: Boolean = batchMode,
       disableOptimizer: Boolean = disableOptimizer,
       prettyPrintFullOptJS: Boolean = prettyPrintFullOptJS,
       checkScalaJSIR: Boolean = checkScalaJSIR,
-      useClosureCompiler: Boolean = useClosureCompiler) = {
+      useClosureCompiler: Boolean = useClosureCompiler,
+      useClosureDCEOnly: Boolean = useClosureDCEOnly) = {
     new OptimizerOptions(bypassLinkingErrors, parallel, batchMode,
         disableOptimizer, prettyPrintFullOptJS, checkScalaJSIR,
-        useClosureCompiler)
+        useClosureCompiler, useClosureDCEOnly)
   }
 
   override def toString: String = {
